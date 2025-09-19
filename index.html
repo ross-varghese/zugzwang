@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Zugzwang 🤖 Bot vs Bot</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="board"></div>
+  <div id="sidebar">
+    <h2>Zugzwang 🤖</h2>
+    <div id="status">Preparing match...</div>
+    <ul id="move-log"></ul>
+    <button onclick="startBotMatch()">🔄 Restart Match</button>
+  </div>
+
+  <!-- Modular JS -->
+  <script type="module">
+    import { restartGame, nextTurn } from './js/game.js';
+    window.startBotMatch = () => {
+      restartGame();
+      setTimeout(nextTurn, 1500); // ✅ Kick off white bot's move
+    };
+    window.onload = window.startBotMatch;
+  </script>
+</body>
+</html>

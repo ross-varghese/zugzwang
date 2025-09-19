@@ -1,0 +1,22 @@
+#board {
+  display: grid;
+  grid-template-columns: repeat(5, 80px);
+  grid-template-rows: repeat(5, 80px);
+  border: 2px solid #333;
+}
+
+.square {
+  width: 80px;
+  height: 80px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 32px;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+
+.square:nth-child(odd) { background-color: #eee; }
+.square:nth-child(even) { background-color: #ccc; }
+
+.selected { background-color: #f0a; }

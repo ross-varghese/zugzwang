@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Zugzwang 🧠 Tactical Intelligence Edition</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f4f4f4;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: row;
+      justify-content: center;
+      gap: 40px;
+      align-items: flex-start;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #board {
+      display: grid;
+      grid-template-columns: repeat(5, 80px);
+      grid-template-rows: repeat(5, 80px);
+      border: 2px solid #333;
+      background: #222;
+    }
+    .square {
+      width: 80px;
+      height: 80px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 32px;
+      color: #000;
+    }
+    .light { background-color: #eee; }
+    .dark { background-color: #bbb; }
+    #sidebar {
+      max-width: 300px;
+      display: flex;
+      flex-direction: column;
+      max-height: 100%;
+      overflow: hidden;
+    }
+    h2 {
+      border-bottom: 1px solid #aaa;
+      padding-bottom: 4px;
+      margin-bottom: 8px;
+    }
+    #status {
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    #move-log {
+      border-top: none;
+      margin-top: 0;
+      padding-top: 0;
+      background-color: transparent;
+      overflow-y: auto;
+      max-height: 300px;
+    }
+    #move-log li {
+      padding: 2px 0;
+      font-size: 14px;
+    }
+    button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div id="board"></div>
+  <div id="sidebar">
+    <h2>Zugzwang 🤖</h2>
+    <div id="status">Preparing match...</div>
+    <ul id="move-log"></ul>
+    <button onclick="startBotMatch()">🔄 Restart Match</button>
+  </div>
+
+  <script>
+    const FILES = ['a', 'b', 'c', 'd', 'e'];
+    const RANKS = ['5', '4', '3', '2', '1'];
+    const PIECES = {
+      player: { king: '♔', knight: '♘' },
+      ai: { king: '♚', knight: '♞' }
+    };
+
+    let board = [];
+    let playerPieces = {};
+    let aiPieces = {};
+    let moveLog = [];
+    let turn = '';
+    let positionHistory = {};
+
+    const boardDiv = document.getElementById('board');
+    const statusDiv = document.getElementById('status');
+    const logList = document.getElementById('move-log');
+
+    function restartGame() {
+      board = Array.from({ length: 5 }, () => Array(5).fill('.'));
+      playerPieces = { king: [4, 2], knight: [4, 3] };
+      aiPieces = { king: [0, 2], knight: [0, 1] };
+      moveLog = [];
+      positionHistory = {};
+      turn = 'player';
+      placePieces();
+      renderBoard();
+      updateLog();
+      statusDiv.textContent = `${turn === 'player' ? 'White' : 'Black'} starts the match!`;
+    }
+
+    function placePieces() {
+      board = Array.from({ length: 5 }, () => Array(5).fill('.'));
+      for (const [name, [x, y]] of Object.entries(playerPieces)) {
+        board[x][y] = PIECES.player[name];
+      }
+      for (const [name, [x, y]] of Object.entries(aiPieces)) {
+        board[x][y] = PIECES.ai[name];
+      }
+    }
+
+    function renderBoard() {
+      boardDiv.innerHTML = '';
+      for (let x = 0; x < 5; x++) {
+        for (let y = 0; y < 5; y++) {
+          const square = document.createElement('div');
+          square.className = 'square ' + ((x + y) % 2 === 0 ? 'light' : 'dark');
+          square.innerText = board[x][y] !== '.' ? board[x][y] : '';
+          boardDiv.appendChild(square);
+        }
+      }
+    }
+
+    function getBoardStateHash() {
+      return board.flat().join('') +
+        '|' + JSON.stringify(playerPieces) +
+        '|' + JSON.stringify(aiPieces);
+    }
+
+    function updateLog() {
+      logList.innerHTML = '';
+      for (let i = 0; i < moveLog.length; i += 2) {
+        const p = moveLog[i] || '';
+        const a = moveLog[i + 1] || '';
+        const li = document.createElement('li');
+        li.textContent = `${i / 2 + 1}. ${p} ${a}`;
+        logList.appendChild(li);
+      }
+    }
+
+    function getPieceAt(x, y) {
+      return board[x]?.[y];
+    }
+    function inCheck(isPlayer) {
+      const king = isPlayer ? playerPieces.king : aiPieces.king;
+      const opponent = isPlayer ? aiPieces : playerPieces;
+      if (!king) return false;
+      return Object.values(opponent).some(([x, y]) => {
+        const dx = Math.abs(x - king[0]);
+        const dy = Math.abs(y - king[1]);
+        const piece = board[x]?.[y];
+        return piece &&
+          piece === (isPlayer ? PIECES.ai.knight : PIECES.player.knight) &&
+          ((dx === 2 && dy === 1) || (dx === 1 && dy === 2));
+      });
+    }
+
+    function moveExposesKing(piece, x, y, nx, ny, isPlayer) {
+      const team = isPlayer ? playerPieces : aiPieces;
+      const opponent = isPlayer ? aiPieces : playerPieces;
+      const original = [...team[piece]];
+      const captured = Object.entries(opponent).find(([, pos]) => pos[0] === nx && pos[1] === ny);
+      const capturedKey = captured?.[0];
+      const capturedVal = captured?.[1];
+
+      board[x][y] = '.';
+      board[nx][ny] = PIECES[isPlayer ? 'player' : 'ai'][piece];
+      team[piece] = [nx, ny];
+      if (capturedKey) delete opponent[capturedKey];
+
+      const danger = inCheck(isPlayer);
+
+      board[nx][ny] = capturedVal ? PIECES[isPlayer ? 'ai' : 'player'][capturedKey] : '.';
+      board[x][y] = PIECES[isPlayer ? 'player' : 'ai'][piece];
+      team[piece] = original;
+      if (capturedKey) opponent[capturedKey] = capturedVal;
+
+      return danger;
+    }
+
+    function attemptMove(piece, x, y, nx, ny, isPlayer, testOnly = false) {
+      if (nx < 0 || ny < 0 || nx >= 5 || ny >= 5) return false;
+      const team = isPlayer ? playerPieces : aiPieces;
+      const opponent = isPlayer ? aiPieces : playerPieces;
+
+      if (board[nx][ny] !== '.' &&
+          Object.values(PIECES[isPlayer ? 'player' : 'ai']).includes(board[nx][ny])) return false;
+
+      const dx = Math.abs(nx - x);
+      const dy = Math.abs(ny - y);
+      if (piece === 'knight' && !((dx === 2 && dy === 1) || (dx === 1 && dy === 2))) return false;
+      if (piece === 'king' && (dx > 1 || dy > 1)) return false;
+
+      const oppKing = opponent.king;
+      if (piece === 'king' && oppKing &&
+          Math.abs(oppKing[0] - nx) <= 1 &&
+          Math.abs(oppKing[1] - ny) <= 1) return false;
+
+      if (moveExposesKing(piece, x, y, nx, ny, isPlayer)) return false;
+      if (testOnly) return true;
+
+      for (const [op, pos] of Object.entries(opponent)) {
+        if (pos[0] === nx && pos[1] === ny) {
+          delete opponent[op];
+          break;
+        }
+      }
+
+      board[x][y] = '.';
+      board[nx][ny] = PIECES[isPlayer ? 'player' : 'ai'][piece];
+      team[piece] = [nx, ny];
+      moveLog.push(`${isPlayer ? '' : '... '}${piece[0].toUpperCase()}${FILES[ny]}${RANKS[nx]}`);
+      updateLog();
+      return true;
+    }
+
+    function botTurn(isPlayer) {
+      const team = isPlayer ? playerPieces : aiPieces;
+      const opponent = isPlayer ? aiPieces : playerPieces;
+      const opponentSymbols = Object.values(PIECES[isPlayer ? 'ai' : 'player']);
+      const allMoves = [];
+
+      for (const [piece, [x, y]] of Object.entries(team)) {
+        for (let dx = -2; dx <= 2; dx++) {
+          for (let dy = -2; dy <= 2; dy++) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if ((dx === 0 && dy === 0)) continue;
+            if (!attemptMove(piece, x, y, nx, ny, isPlayer, true)) continue;
+
+            const move = { piece, x, y, nx, ny };
+            const target = board[nx]?.[ny];
+
+            if (opponentSymbols.includes(target)) {
+              move.priority = 3; // Capture
+            } else {
+              // Simulate move
+              const tmp = board[nx][ny];
+              board[x][y] = '.';
+              board[nx][ny] = PIECES[isPlayer ? 'player' : 'ai'][piece];
+              const causesCheck = inCheck(!isPlayer);
+              board[nx][ny] = tmp;
+              board[x][y] = PIECES[isPlayer ? 'player' : 'ai'][piece];
+              move.priority = causesCheck ? 2 : 1;
+            }
+
+            allMoves.push(move);
+          }
+        }
+      }
+
+      allMoves.sort((a, b) => b.priority - a.priority || Math.random() - 0.5);
+
+      for (const move of allMoves) {
+        if (attemptMove(move.piece, move.x, move.y, move.nx, move.ny, isPlayer)) return true;
+      }
+
+      return false;
+    }
+
+    function updateStatus() {
+      if (!playerPieces.knight && !aiPieces.knight) {
+        statusDiv.textContent = '🟨 Draw! Both knights are gone.';
+        turn = 'none';
+        return;
+      }
+      if (!inCheck(true) && !hasLegalMoves(true)) {
+        statusDiv.textContent = '🟨 Draw! White is stalemated.';
+        turn = 'none';
+        return;
+      }
+      if (!inCheck(false) && !hasLegalMoves(false)) {
+        statusDiv.textContent = '🟨 Draw! Black is stalemated.';
+        turn = 'none';
+        return;
+      }
+
+      const hash = getBoardStateHash();
+      positionHistory[hash] = (positionHistory[hash] || 0) + 1;
+      if (positionHistory[hash] >= 3) {
+        statusDiv.textContent = '🟨 Draw by repetition.';
+        turn = 'none';
+        return;
+      }
+
+      statusDiv.textContent = turn === 'player' ? 'White’s move...' : 'Black’s move...';
+    }
+
+    function nextTurn() {
+      if (turn === 'none') return;
+      const isPlayer = turn === 'player';
+      const moved = botTurn(isPlayer);
+
+      placePieces();
+      renderBoard();
+      updateStatus();
+
+      if (turn === 'none') {
+        setTimeout(startBotMatch, 1500);
+      } else {
+        turn = isPlayer ? 'ai' : 'player';
+        setTimeout(nextTurn, 1500);
+      }
+    }
+
+    function hasLegalMoves(isPlayer) {
+      const team = isPlayer ? playerPieces : aiPieces;
+      for (const [piece, [x, y]] of Object.entries(team)) {
+        for (let dx = -2; dx <= 2; dx++) {
+          for (let dy = -2; dy <= 2; dy++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            const ny = y + dy;
+            if (attemptMove(piece, x, y, nx, ny, isPlayer, true)) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function startBotMatch() {
+      restartGame();
+      setTimeout(nextTurn, 1500);
+    }
+
+    window.onload = startBotMatch;
+  </script>
+</body>
+</html>
